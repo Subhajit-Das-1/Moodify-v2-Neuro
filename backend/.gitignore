@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+.env
+venv/
+.env.local
+
+# ML
+*.h5
+*.pt
+*.onnx
+
+# OS
+.DS_Store
+Thumbs.db
