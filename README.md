@@ -1,2 +1,3 @@
-# Moodify-v2-Neuro
-Moodify-v2-Neuro is an upgraded, AI-driven music recommendation system that uses machine learning and computer vision to understand user emotions and generate adaptive Spotify playlists. The system models emotional transitions and continuously improves recommendations through user feedback.
+<p align="center">
+  <img src="Moodify_V2_Workflow.png" alt="Moodify v2 Neuro Workflow" width="100%"/>
+</p>
