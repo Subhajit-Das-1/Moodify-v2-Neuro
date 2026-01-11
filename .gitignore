@@ -13,3 +13,30 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+venv/
+
+# ML / Data
+backend/data/
+backend/datasets/
+backend/model/
+backend/features/
+backend/scripts/
+backend/tests/
+*.h5
+*.npy
+*.wav
+
+# Node
+node_modules/
+.next/
+dist/
+
+# OS
+.DS_Store
+Thumbs.db

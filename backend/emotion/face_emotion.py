@@ -2,37 +2,60 @@ import cv2
 import numpy as np
 import os
 from fastapi import UploadFile
+from tensorflow.keras.models import load_model
 
-from ml_model.load_model import model
-from ml_model.emotion_labels import emotion_labels
-
-# ---------------- PATHS ----------------
+# ================= BASE PATH =================
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# ================= FACE DETECTOR (DNN) =================
 PROTO_PATH = os.path.join(
     BASE_DIR, "models", "dnn_face", "deploy.prototxt"
 )
 
-MODEL_PATH = os.path.join(
+DNN_MODEL_PATH = os.path.join(
     BASE_DIR, "models", "dnn_face", "res10_300x300_ssd_iter_140000.caffemodel"
 )
 
-face_net = cv2.dnn.readNetFromCaffe(PROTO_PATH, MODEL_PATH)
+face_net = cv2.dnn.readNetFromCaffe(PROTO_PATH, DNN_MODEL_PATH)
 
-# ---------------- PREPROCESS ----------------
+print("🙂 Face detector loaded (DNN)")
+print("📁 DNN model:", DNN_MODEL_PATH)
+
+# ================= FACE EMOTION MODEL =================
+FACE_MODEL_PATH = os.path.join(
+    BASE_DIR, "model", "face_emotion_model.h5"
+)
+
+FACE_LABEL_PATH = os.path.join(
+    BASE_DIR, "model", "face_emotion_labels.npy"
+)
+
+print("🧠 Loading FACE emotion model from:", FACE_MODEL_PATH)
+print("MODEL EXISTS:", os.path.exists(FACE_MODEL_PATH))
+
+face_emotion_model = load_model(FACE_MODEL_PATH, compile=False)
+emotion_labels = np.load(FACE_LABEL_PATH)
+
+print("🧠 Face emotion model loaded")
+print("🏷️ Labels:", emotion_labels)
+
+# ================= PREPROCESS =================
 def preprocess_face(face_img):
     face_img = cv2.resize(face_img, (64, 64))
     face_img = face_img.astype("float32") / 255.0
     face_img = np.reshape(face_img, (1, 64, 64, 1))
     return face_img
 
-# ---------------- MAIN ----------------
+# ================= MAIN API =================
 def detect_emotion(image: UploadFile):
     """
+    Detects face and predicts facial emotion
     Returns:
     {
+        success: bool,
         emotion: str,
-        confidence: float
+        confidence: float,
+        face_detected: bool
     }
     """
 
@@ -42,7 +65,12 @@ def detect_emotion(image: UploadFile):
         img = cv2.imdecode(np_img, cv2.IMREAD_COLOR)
 
         if img is None:
-            return {"emotion": "neutral", "confidence": 0.0}
+            return {
+                "success": False,
+                "emotion": "neutral",
+                "confidence": 0.0,
+                "face_detected": False
+            }
 
         (h, w) = img.shape[:2]
 
@@ -56,40 +84,60 @@ def detect_emotion(image: UploadFile):
         face_net.setInput(blob)
         detections = face_net.forward()
 
-        for i in range(detections.shape[2]):
-            face_confidence = float(detections[0, 0, i, 2])
-            print(f"🧪 Face confidence: {face_confidence:.2f}")
+        best_face = None
+        best_conf = 0.0
 
-            if face_confidence > 0.3:
+        # ---------- Find strongest face ----------
+        for i in range(detections.shape[2]):
+            conf = float(detections[0, 0, i, 2])
+
+            if conf > best_conf and conf > 0.4:
                 box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
                 (x1, y1, x2, y2) = box.astype("int")
 
-                # Safe clipping
                 x1, y1 = max(0, x1), max(0, y1)
                 x2, y2 = min(w, x2), min(h, y2)
 
                 face_roi = img[y1:y2, x1:x2]
-                if face_roi.size == 0:
-                    continue
 
-                gray_face = cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY)
+                if face_roi.size > 0:
+                    best_face = face_roi
+                    best_conf = conf
 
-                processed_face = preprocess_face(gray_face)
-                preds = model.predict(processed_face)[0]
+        if best_face is None:
+            return {
+                "success": False,
+                "emotion": "neutral",
+                "confidence": 0.0,
+                "face_detected": False
+            }
 
-                emotion_index = int(np.argmax(preds))
-                emotion = emotion_labels[emotion_index]
-                emotion_confidence = float(np.max(preds))
+        print(f"🧪 Face detected (confidence={best_conf:.2f})")
 
-                print(f"🎯 Emotion: {emotion}, Confidence: {emotion_confidence:.2f}")
+        # ---------- Emotion Prediction ----------
+        gray_face = cv2.cvtColor(best_face, cv2.COLOR_BGR2GRAY)
+        processed_face = preprocess_face(gray_face)
 
-                return {
-                    "emotion": emotion,
-                    "confidence": emotion_confidence
-                }
+        preds = face_emotion_model.predict(processed_face, verbose=0)[0]
 
-        return {"emotion": "neutral", "confidence": 0.0}
+        emotion_index = int(np.argmax(preds))
+        emotion = str(emotion_labels[emotion_index])
+        emotion_conf = float(preds[emotion_index])
+
+        print(f"🎯 Face emotion: {emotion} ({emotion_conf:.2f})")
+
+        return {
+            "success": True,
+            "emotion": emotion,
+            "confidence": emotion_conf,
+            "face_detected": True
+        }
 
     except Exception as e:
-        print("❌ Emotion detection error:", e)
-        return {"emotion": "neutral", "confidence": 0.0}
+        print("❌ Face emotion error:", e)
+        return {
+            "success": False,
+            "emotion": "neutral",
+            "confidence": 0.0,
+            "face_detected": False
+        }
